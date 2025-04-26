@@ -15,12 +15,29 @@ CTR_LOOKUP = {
     10: 0.03
 }
 
-def estimate_rank(difficulty, month):
-    """Estimate keyword ranking improvement over time."""
-    base_rank = 50
-    improvement_rate = max(1, (100 - difficulty) / 10)
-    rank = base_rank - (improvement_rate * month)
-    return max(1, min(100, int(rank)))
+def estimate_rank_dynamic(difficulty, month):
+    """Estimate ranking improvement more realistically."""
+    # Start worse for higher difficulty
+    if difficulty < 30:
+        current_rank = 40
+    elif difficulty < 60:
+        current_rank = 60
+    else:
+        current_rank = 80
+
+    for _ in range(month):
+        if current_rank > 50:
+            rank_improvement = 8
+        elif current_rank > 20:
+            rank_improvement = 4
+        elif current_rank > 10:
+            rank_improvement = 2
+        else:
+            rank_improvement = 1
+
+        current_rank = max(1, current_rank - rank_improvement)
+
+    return current_rank
 
 def get_ctr(rank):
     """Get CTR based on estimated ranking position."""
@@ -36,7 +53,7 @@ def project_traffic(df, months=6):
         page = row['Assigned Page']
 
         for month in range(1, months + 1):
-            est_rank = estimate_rank(difficulty, month)
+            est_rank = estimate_rank_dynamic(difficulty, month)
             ctr = get_ctr(est_rank)
             est_traffic = volume * ctr
             projections.append({
@@ -47,13 +64,13 @@ def project_traffic(df, months=6):
     return pd.DataFrame(projections)
 
 def pivot_projection(projections, months):
-    """Pivot the data: rows = page, columns = months + cumulative"""
+    """Pivot the data: rows = page, columns = months + cumulative."""
     pivot = projections.pivot_table(
         index="Assigned Page",
         columns="Month",
         values="Estimated Traffic",
         aggfunc="sum",
-        fill_value=0
+        fill_value=0,
     )
 
     # Rename columns to "Month 1", "Month 2", etc.
@@ -66,7 +83,7 @@ def pivot_projection(projections, months):
 
 # --- Streamlit Interface ---
 
-st.title("📈 Keyword Traffic Projection App (Page-Level)")
+st.title("📈 Keyword Traffic Projection App (Smarter Ranking Model)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
