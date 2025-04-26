@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # --- Updated Dynamic CTR Function ---
 def get_ctr_dynamic(rank):
@@ -28,7 +29,6 @@ def get_ctr_dynamic(rank):
 # --- Updated Rank Estimation ---
 def estimate_rank_dynamic(difficulty, month):
     """Estimate ranking improvement more realistically."""
-    # Better starting positions for easier keywords
     if difficulty < 20:
         current_rank = 30
     elif difficulty < 40:
@@ -90,7 +90,7 @@ def pivot_projection(projections, months):
     return pivot.reset_index()
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Dynamic CTR Model)")
+st.title("📈 Keyword Traffic Projection App (Dynamic CTR + Charts)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -106,9 +106,12 @@ if uploaded_file:
     projections = project_traffic(df, months)
     pivoted = pivot_projection(projections, months)
 
-    st.subheader("📊 Projected Traffic by Page")
-    st.dataframe(pivoted)
+    # --- Pretty Styled Table ---
+    st.subheader("📊 Projected Traffic by Page (with Heatmap)")
+    styled_table = pivoted.style.background_gradient(cmap="YlGnBu", subset=[f"Month {i}" for i in range(1, months + 1)] + ["Cumulative Total"])
+    st.dataframe(styled_table, use_container_width=True)
 
+    # --- Download Button ---
     csv = pivoted.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download Projected Traffic CSV",
@@ -116,3 +119,22 @@ if uploaded_file:
         file_name="projected_traffic_by_page.csv",
         mime="text/csv"
     )
+
+    # --- Line Chart ---
+    st.subheader("📈 Traffic Growth Over Time")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    month_cols = [f"Month {i}" for i in range(1, months + 1)]
+
+    for idx, row in pivoted.iterrows():
+        ax.plot(month_cols, row[month_cols], label=row['Assigned Page'])
+
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Estimated Traffic")
+    ax.set_title("Traffic Growth by Page")
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize="small")
+    st.pyplot(fig)
+
+    # --- Top Pages ---
+    st.subheader("🏆 Top 5 Pages by Total Projected Traffic")
+    top_pages = pivoted.sort_values(by="Cumulative Total", ascending=False).head(5)
+    st.dataframe(top_pages, use_container_width=True)
