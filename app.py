@@ -49,9 +49,46 @@ def project_traffic(df, months=6):
 def pivot_projection(projections, months):
     """Pivot the data: rows = page, columns = months + cumulative"""
     pivot = projections.pivot_table(
-    index="Assigned Page",
-    columns="Month",
-    values="Estimated Traffic",
-    aggfunc="sum",
-    fill_value=0,
-)
+        index="Assigned Page",
+        columns="Month",
+        values="Estimated Traffic",
+        aggfunc="sum",
+        fill_value=0
+    )
+
+    # Rename columns to "Month 1", "Month 2", etc.
+    pivot.columns = [f"Month {col}" for col in pivot.columns]
+
+    # Add a Cumulative Total column
+    pivot["Cumulative Total"] = pivot.sum(axis=1)
+
+    return pivot.reset_index()
+
+# --- Streamlit Interface ---
+
+st.title("📈 Keyword Traffic Projection App (Page-Level)")
+
+uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
+
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    df.columns = df.columns.str.strip()  # Clean column names
+
+    st.subheader("Your Uploaded Data")
+    st.dataframe(df)
+
+    months = st.slider("Project for how many months?", 1, 12, 6)
+
+    projections = project_traffic(df, months)
+    pivoted = pivot_projection(projections, months)
+
+    st.subheader("📊 Projected Traffic by Page")
+    st.dataframe(pivoted)
+
+    csv = pivoted.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Download Projected Traffic CSV",
+        data=csv,
+        file_name="projected_traffic_by_page.csv",
+        mime="text/csv"
+    )
