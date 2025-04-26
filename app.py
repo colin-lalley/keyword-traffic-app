@@ -40,38 +40,12 @@ def project_traffic(df, months=6):
             ctr = get_ctr(est_rank)
             est_traffic = volume * ctr
             projections.append({
-                "Keyword": keyword,
+                "Assigned Page": page,
                 "Month": month,
-                "Estimated Rank": est_rank,
-                "CTR": ctr,
-                "Estimated Traffic": est_traffic,
-                "Assigned Page": page
+                "Estimated Traffic": est_traffic
             })
     return pd.DataFrame(projections)
 
-# --- Streamlit Interface ---
-
-st.title("Keyword Traffic Projection App")
-
-uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-
-    st.subheader("Your Uploaded Data")
-    st.dataframe(df)
-
-    months = st.slider("Project for how many months?", 1, 12, 6)
-
-    results = project_traffic(df, months)
-
-    st.subheader("Projected Traffic")
-    st.dataframe(results)
-
-    csv = results.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Download Projected Traffic CSV",
-        data=csv,
-        file_name="projected_traffic.csv",
-        mime="text/csv"
-    )
+def pivot_projection(projections, months):
+    """Pivot the data: rows = page, columns = months + cumulative"""
+    pivot = projections.pivot_table(
