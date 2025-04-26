@@ -49,3 +49,9 @@ def project_traffic(df, months=6):
 def pivot_projection(projections, months):
     """Pivot the data: rows = page, columns = months + cumulative"""
     pivot = projections.pivot_table(
+    index="Assigned Page",
+    columns="Month",
+    values="Estimated Traffic",
+    aggfunc="sum",
+    fill_value=0,
+)
