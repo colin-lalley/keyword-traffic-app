@@ -1,24 +1,37 @@
 import streamlit as st
 import pandas as pd
 
-# CTR assumptions based on ranking position
-CTR_LOOKUP = {
-    1: 0.31,
-    2: 0.24,
-    3: 0.18,
-    4: 0.13,
-    5: 0.10,
-    6: 0.08,
-    7: 0.06,
-    8: 0.05,
-    9: 0.04,
-    10: 0.03
-}
+# --- Updated Dynamic CTR Function ---
+def get_ctr_dynamic(rank):
+    """Get a better CTR estimate based on broader rank ranges."""
+    if rank == 1:
+        return 0.31
+    elif rank == 2:
+        return 0.24
+    elif rank == 3:
+        return 0.18
+    elif rank == 4:
+        return 0.13
+    elif rank == 5:
+        return 0.10
+    elif 6 <= rank <= 10:
+        return 0.06
+    elif 11 <= rank <= 20:
+        return 0.03
+    elif 21 <= rank <= 30:
+        return 0.02
+    elif 31 <= rank <= 50:
+        return 0.01
+    else:
+        return 0.005  # Tiny CTR if rank is worse than 50
 
+# --- Updated Rank Estimation ---
 def estimate_rank_dynamic(difficulty, month):
     """Estimate ranking improvement more realistically."""
-    # Start worse for higher difficulty
-    if difficulty < 30:
+    # Better starting positions for easier keywords
+    if difficulty < 20:
+        current_rank = 30
+    elif difficulty < 40:
         current_rank = 40
     elif difficulty < 60:
         current_rank = 60
@@ -39,10 +52,7 @@ def estimate_rank_dynamic(difficulty, month):
 
     return current_rank
 
-def get_ctr(rank):
-    """Get CTR based on estimated ranking position."""
-    return CTR_LOOKUP.get(rank, 0.01)
-
+# --- Project Traffic ---
 def project_traffic(df, months=6):
     """Create a monthly projection DataFrame."""
     projections = []
@@ -54,7 +64,7 @@ def project_traffic(df, months=6):
 
         for month in range(1, months + 1):
             est_rank = estimate_rank_dynamic(difficulty, month)
-            ctr = get_ctr(est_rank)
+            ctr = get_ctr_dynamic(est_rank)
             est_traffic = volume * ctr
             projections.append({
                 "Assigned Page": page,
@@ -63,6 +73,7 @@ def project_traffic(df, months=6):
             })
     return pd.DataFrame(projections)
 
+# --- Pivot Output ---
 def pivot_projection(projections, months):
     """Pivot the data: rows = page, columns = months + cumulative."""
     pivot = projections.pivot_table(
@@ -73,23 +84,19 @@ def pivot_projection(projections, months):
         fill_value=0,
     )
 
-    # Rename columns to "Month 1", "Month 2", etc.
     pivot.columns = [f"Month {col}" for col in pivot.columns]
-
-    # Add a Cumulative Total column
     pivot["Cumulative Total"] = pivot.sum(axis=1)
 
     return pivot.reset_index()
 
-# --- Streamlit Interface ---
-
-st.title("📈 Keyword Traffic Projection App (Smarter Ranking Model)")
+# --- Streamlit App ---
+st.title("📈 Keyword Traffic Projection App (Dynamic CTR Model)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    df.columns = df.columns.str.strip()  # Clean column names
+    df.columns = df.columns.str.strip()
 
     st.subheader("Your Uploaded Data")
     st.dataframe(df)
