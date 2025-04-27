@@ -92,7 +92,7 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
         medium_improvement = 6
         slow_improvement = 3
         very_slow_improvement = 2
-    else:  # Average
+    else:
         fast_improvement = 8
         medium_improvement = 4
         slow_improvement = 2
@@ -194,10 +194,8 @@ def pivot_projection(projections, months):
         (pivot["Intent Score"] * 0.25)
     )
 
-    # Round numbers
     pivot = pivot.round(1)
 
-    # Dynamic column selection based on months selected
     month_cols = [f"Month {i}" for i in range(1, months + 1)]
     keep_cols = ["Assigned Page"] + month_cols + ["Cumulative Total", "Final Page Score"]
 
@@ -238,11 +236,11 @@ if uploaded_file:
 
     filter_option = st.radio(
         "Filter Pages By:",
-        options=["Show All Pages", "Show Pages with Final Page Score >70", "Show Top 10 Pages"]
+        options=["Show All Pages", "Show Pages with Final Page Score >40", "Show Top 10 Pages"]
     )
 
-    if filter_option == "Show Pages with Final Page Score >70":
-        pivoted = pivoted[pivoted["Final Page Score"] > 70]
+    if filter_option == "Show Pages with Final Page Score >40":
+        pivoted = pivoted[pivoted["Final Page Score"] > 40]
     elif filter_option == "Show Top 10 Pages":
         pivoted = pivoted.head(10)
 
@@ -279,3 +277,8 @@ if uploaded_file:
     ax.set_title("Traffic Growth by Page")
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize="small")
     st.pyplot(fig)
+
+    # --- Top Pages Table ---
+    st.subheader("🏆 Top 5 Pages by Final Page Score")
+    top_pages = pivoted.head(5)
+    st.dataframe(top_pages, use_container_width=True, hide_index=True)
