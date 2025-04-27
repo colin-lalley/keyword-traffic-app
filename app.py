@@ -48,7 +48,6 @@ def determine_max_rank(difficulty):
 
 # --- Intent Scoring ---
 def map_intent_score(intent):
-    """Handle multiple intents by prioritizing the highest-value intent, and handle missing intents."""
     priority = {
         "Transactional": 100,
         "Commercial": 80,
@@ -57,7 +56,7 @@ def map_intent_score(intent):
     }
 
     if pd.isna(intent) or not intent.strip():
-        return None  # Missing intent
+        return None
 
     intents = [i.strip() for i in intent.split(",")]
 
@@ -203,7 +202,7 @@ def pivot_projection(projections, months):
     return pivot.reset_index(drop=True)
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Polished Version)")
+st.title("📈 Keyword Traffic Projection App (Polished Version with Toggles)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -211,12 +210,14 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file)
     df.columns = df.columns.str.strip()
 
+    st.success("✅ File uploaded successfully — now select mode and months below.")
     st.subheader("Your Uploaded Data")
     st.dataframe(df)
 
     if df['Intent'].isna().sum() > 0 or (df['Intent'].str.strip() == "").sum() > 0:
         st.warning("⚠️ Some keywords have missing Intent. These will not receive an Intent Score boost.")
 
+    # --- User Toggles Appear Here ---
     mode = st.selectbox(
         "Select Improvement Mode:",
         options=["Conservative", "Average", "Aggressive"],
@@ -232,6 +233,10 @@ if uploaded_file:
     projections = project_traffic(df, months, mode=mode)
     pivoted = pivot_projection(projections, months)
 
+    # Round numbers cleanly
+    pivoted = pivoted.round(1)
+
+    # Filter Option
     filter_option = st.radio(
         "Filter Pages By:",
         options=["Show All Pages", "Show Pages with Final Page Score >70", "Show Top 10 Pages"]
@@ -242,19 +247,22 @@ if uploaded_file:
     elif filter_option == "Show Top 10 Pages":
         pivoted = pivoted.head(10)
 
+    # Executive Summary
     st.subheader("📋 Executive Summary")
     avg_score = pivoted["Final Page Score"].mean().round(1) if not pivoted.empty else 0
     high_priority_count = (pivoted["Final Page Score"] >= 80).sum()
     st.markdown(f"You have **{high_priority_count} high-priority pages** scoring above 80.")
     st.markdown(f"The average Final Page Score across the filtered pages is **{avg_score}**.")
 
-    st.subheader("📊 Projected Traffic by Page")
+    # Styled Traffic + Scoring Table
+    st.subheader("📊 Projected Traffic by Page (with Heatmap)")
     styled_table = pivoted.style.background_gradient(
         cmap="YlGnBu",
         subset=[f"Month {i}" for i in range(1, months + 1)] + ["Cumulative Total", "Final Page Score"]
     )
-    st.dataframe(styled_table, use_container_width=True)
+    st.dataframe(styled_table, use_container_width=True, hide_index=True)
 
+    # Download Button
     csv = pivoted.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Download Projected Traffic CSV",
@@ -263,6 +271,7 @@ if uploaded_file:
         mime="text/csv"
     )
 
+    # Traffic Growth Chart
     st.subheader("📈 Traffic Growth Over Time")
     fig, ax = plt.subplots(figsize=(10, 6))
     month_cols = [f"Month {i}" for i in range(1, months + 1)]
