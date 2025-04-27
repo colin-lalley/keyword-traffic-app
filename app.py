@@ -68,7 +68,7 @@ def map_intent_score(intent):
 
     return best_score if best_score > 0 else None
 
-# --- Estimate Rank with Cluster Speed Boost ---
+# --- Estimate Rank with Cluster Boost ---
 def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=False):
     if difficulty < 20:
         current_rank = 30
@@ -124,16 +124,18 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
 # --- Project Traffic ---
 def project_traffic(df, months=6, mode="Average"):
     projections = []
-    page_keyword_counts = df.groupby('Assigned Page').size().to_dict()
+
+    # Count unique pages per Cluster Group
+    cluster_page_counts = df.groupby('Cluster Group')['Assigned Page'].nunique().to_dict()
 
     for idx, row in df.iterrows():
-        keyword = row['Keyword']
+        page = row['Assigned Page']
         volume = row['Monthly Search Volume']
         difficulty = row['Difficulty']
-        page = row['Assigned Page']
         intent = row['Intent']
+        cluster = row['Cluster Group']
 
-        is_cluster = page_keyword_counts.get(page, 0) >= 3
+        is_cluster = cluster and cluster_page_counts.get(cluster, 0) >= 3
 
         ranks = estimate_rank_with_cluster(difficulty, months, mode=mode, is_cluster=is_cluster)
 
@@ -158,7 +160,8 @@ def project_traffic(df, months=6, mode="Average"):
                 "Month": month_idx,
                 "Estimated Traffic": est_traffic,
                 "Difficulty": difficulty,
-                "Intent": intent
+                "Intent": intent,
+                "Cluster Group": cluster
             })
 
     return pd.DataFrame(projections)
@@ -204,7 +207,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Polished & Corrected Version)")
+st.title("📈 Keyword Traffic Projection App (Cluster Opportunity Edition)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -278,7 +281,44 @@ if uploaded_file:
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize="small")
     st.pyplot(fig)
 
-    # --- Top Pages Table ---
-    st.subheader("🏆 Top 5 Pages by Final Page Score")
-    top_pages = pivoted.head(5)
-    st.dataframe(top_pages, use_container_width=True, hide_index=True)
+    # --- Top Pages Table (Opportunity View) ---
+    def label_opportunity(row):
+        if row['Final Page Score'] >= 80 and row['Difficulty'] < 50:
+            return "Easy Win"
+        elif row['Final Page Score'] >= 70:
+            return "Moderate Win"
+        else:
+            return "Harder Bet"
+
+    top_pages = pivoted.head(10).copy()
+    top_pages["Opportunity Label"] = top_pages.apply(label_opportunity, axis=1)
+
+    st.subheader("🏆 Top Opportunity Pages")
+    st.dataframe(top_pages[["Assigned Page", "Opportunity Label"]], use_container_width=True, hide_index=True)
+
+    # --- Cluster Opportunity Rankings ---
+    st.subheader("🏢 Cluster Opportunity Rankings")
+    cluster_summary = projections.groupby("Cluster Group").agg(
+        Avg_Final_Page_Score=("Assigned Page", lambda x: pivoted[pivoted["Assigned Page"].isin(x)].mean()["Final Page Score"]),
+        Page_Count=("Assigned Page", lambda x: x.nunique())
+    ).reset_index()
+
+    cluster_summary = cluster_summary.dropna(subset=["Cluster Group"])
+
+    def cluster_label(row):
+        if row['Avg_Final_Page_Score'] >= 80:
+            return "Huge Opportunity"
+        elif row['Avg_Final_Page_Score'] >= 70:
+            return "Strong Opportunity"
+        elif row['Avg_Final_Page_Score'] >= 60:
+            return "Moderate Opportunity"
+        else:
+            return "Lower Priority"
+
+    cluster_summary["Opportunity Label"] = cluster_summary.apply(cluster_label, axis=1)
+
+    st.dataframe(
+        cluster_summary[["Cluster Group", "Page_Count", "Avg_Final_Page_Score", "Opportunity Label"]],
+        use_container_width=True,
+        hide_index=True
+    )
