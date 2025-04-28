@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# --- Detailed CTR Curve Function ---
+# --- CTR Curve ---
 def get_ctr_dynamic(rank):
     if rank == 1:
         return 0.285
@@ -33,7 +33,7 @@ def get_ctr_dynamic(rank):
     else:
         return 0.0025
 
-# --- Max Rank Based on Difficulty ---
+# --- Max Rank ---
 def determine_max_rank(difficulty):
     if difficulty <= 20:
         return 3
@@ -54,21 +54,17 @@ def map_intent_score(intent):
         "Informational": 50,
         "Navigational": 20
     }
-
     if pd.isna(intent) or not intent.strip():
         return None
-
     intents = [i.strip() for i in intent.split(",")]
-
     best_score = 0
     for i in intents:
         score = priority.get(i, 0)
         if score > best_score:
             best_score = score
-
     return best_score if best_score > 0 else None
 
-# --- Estimate Rank with Cluster Boost ---
+# --- Estimate Rank Improvement ---
 def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=False):
     if difficulty < 20:
         current_rank = 30
@@ -124,8 +120,6 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
 # --- Project Traffic ---
 def project_traffic(df, months=6, mode="Average"):
     projections = []
-
-    # Count unique pages per Cluster Group
     cluster_page_counts = df.groupby('Cluster Group')['Assigned Page'].nunique().to_dict()
 
     for idx, row in df.iterrows():
@@ -134,7 +128,6 @@ def project_traffic(df, months=6, mode="Average"):
         difficulty = row['Difficulty']
         intent = row['Intent']
         cluster = row['Cluster Group']
-
         is_cluster = cluster and cluster_page_counts.get(cluster, 0) >= 3
 
         ranks = estimate_rank_with_cluster(difficulty, months, mode=mode, is_cluster=is_cluster)
@@ -207,7 +200,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Cluster Opportunity Edition)")
+st.title("📈 Organic Traffic Projection")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -281,7 +274,7 @@ if uploaded_file:
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize="small")
     st.pyplot(fig)
 
-    # --- Top Pages Table (Opportunity View) ---
+    # --- Top Pages Opportunity ---
     def label_opportunity(row):
         if row['Final Page Score'] >= 80 and row['Difficulty'] < 50:
             return "Easy Win"
@@ -298,6 +291,7 @@ if uploaded_file:
 
     # --- Cluster Opportunity Rankings ---
     st.subheader("🏢 Cluster Opportunity Rankings")
+
     cluster_summary = projections.groupby("Cluster Group").agg(
         Avg_Final_Page_Score=("Assigned Page", lambda x: pivoted[pivoted["Assigned Page"].isin(x)].mean()["Final Page Score"]),
         Page_Count=("Assigned Page", lambda x: x.nunique())
