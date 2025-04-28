@@ -196,7 +196,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Simple Page-Level)")
+st.title("📈 Organic Traffic Projection")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
