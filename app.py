@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import re
 
 # --- CTR Curve ---
 def get_ctr_dynamic(rank):
@@ -47,14 +46,6 @@ def determine_max_rank(difficulty):
     else:
         return 30
 
-# --- Extract Cluster Group from Brackets ---
-def extract_cluster(page_name):
-    match = re.search(r'\[(.*?)\]', page_name)
-    if match:
-        return match.group(1).strip()
-    else:
-        return "No Cluster"
-
 # --- Intent Scoring ---
 def map_intent_score(intent):
     priority = {
@@ -74,13 +65,13 @@ def map_intent_score(intent):
     return best_score if best_score > 0 else None
 
 # --- Estimate Rank Progression ---
-def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=False):
+def estimate_rank(difficulty, months=6, mode="Average"):
     if difficulty < 20:
         current_rank = 30
     elif difficulty < 40:
         current_rank = 40
     elif difficulty < 60:
-        return 60
+        current_rank = 60
     else:
         current_rank = 80
 
@@ -103,12 +94,6 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
         slow_improvement = 2
         very_slow_improvement = 1
 
-    if is_cluster:
-        fast_improvement += 1
-        medium_improvement += 1
-        slow_improvement += 1
-        very_slow_improvement += 1
-
     for month in range(1, months + 1):
         if current_rank > 50:
             rank_improvement = fast_improvement
@@ -130,19 +115,13 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
 def project_traffic(df, months=6, mode="Average"):
     projections = []
 
-    df['Cluster Group'] = df['Assigned Page'].apply(extract_cluster)
-    cluster_page_counts = df.groupby('Cluster Group')['Assigned Page'].nunique().to_dict()
-
     for idx, row in df.iterrows():
         page = row['Assigned Page']
         volume = row['Monthly Search Volume']
         difficulty = row['Difficulty']
         intent = row['Intent']
-        cluster = row['Cluster Group']
 
-        is_cluster = cluster_page_counts.get(cluster, 0) >= 3 and cluster != "No Cluster"
-
-        ranks = estimate_rank_with_cluster(difficulty, months, mode=mode, is_cluster=is_cluster)
+        ranks = estimate_rank(difficulty, months, mode=mode)
 
         prev_traffic = None
         plateau_hit = False
@@ -162,7 +141,6 @@ def project_traffic(df, months=6, mode="Average"):
 
             projections.append({
                 "Assigned Page": page,
-                "Cluster Group": cluster,
                 "Month": month_idx,
                 "Estimated Traffic": est_traffic,
                 "Difficulty": difficulty,
@@ -206,7 +184,6 @@ def pivot_projection(projections, months):
         (pivot["Intent Score"] * 0.25)
     )
 
-    # Hard cap if cumulative visitors very low
     pivot.loc[pivot["Cumulative Total"] < 10, "Final Page Score"] = pivot["Final Page Score"] * 0.5
 
     pivot = pivot.round(1)
@@ -219,7 +196,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Polished Relative Model)")
+st.title("📈 Keyword Traffic Projection App (Simple Page-Level)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -283,31 +260,3 @@ if uploaded_file:
     st.subheader("🏆 Top Opportunity Pages")
     top_pages = pivoted.sort_values("Final Page Score", ascending=False).head(10)
     st.dataframe(top_pages[["Assigned Page", "Cumulative Total", "Final Page Score"]], use_container_width=True, hide_index=True)
-
-    st.subheader("🏢 Cluster Opportunity Rankings")
-    cluster_summary = projections.merge(
-        pivoted[["Assigned Page", "Final Page Score"]],
-        on="Assigned Page",
-        how="left"
-    ).groupby("Cluster Group").agg(
-        Avg_Final_Page_Score=("Final Page Score", "mean"),
-        Page_Count=("Assigned Page", "nunique")
-    ).reset_index()
-
-    def cluster_label(row):
-        if row['Avg_Final_Page_Score'] >= 80:
-            return "Huge Opportunity"
-        elif row['Avg_Final_Page_Score'] >= 70:
-            return "Strong Opportunity"
-        elif row['Avg_Final_Page_Score'] >= 60:
-            return "Moderate Opportunity"
-        else:
-            return "Lower Priority"
-
-    cluster_summary["Opportunity Label"] = cluster_summary.apply(cluster_label, axis=1)
-
-    st.dataframe(
-        cluster_summary[["Cluster Group", "Page_Count", "Avg_Final_Page_Score", "Opportunity Label"]],
-        use_container_width=True,
-        hide_index=True
-    )
