@@ -34,7 +34,7 @@ def get_ctr_dynamic(rank):
     else:
         return 0.0025
 
-# --- Max Rank ---
+# --- Max Rank Based on Difficulty ---
 def determine_max_rank(difficulty):
     if difficulty <= 20:
         return 3
@@ -47,7 +47,7 @@ def determine_max_rank(difficulty):
     else:
         return 30
 
-# --- Extract Cluster Group ---
+# --- Extract Cluster Group from Brackets ---
 def extract_cluster(page_name):
     match = re.search(r'\[(.*?)\]', page_name)
     if match:
@@ -73,7 +73,7 @@ def map_intent_score(intent):
             best_score = score
     return best_score if best_score > 0 else None
 
-# --- Estimate Rank Improvement ---
+# --- Estimate Rank Progression ---
 def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=False):
     if difficulty < 20:
         current_rank = 30
@@ -173,7 +173,7 @@ def project_traffic(df, months=6, mode="Average"):
 
     return pd.DataFrame(projections)
 
-# --- Pivot Output + Scoring ---
+# --- Pivot Output + Scoring (Option B with Traffic Weighting) ---
 def pivot_projection(projections, months):
     pivot = projections.pivot_table(
         index="Assigned Page",
@@ -194,12 +194,17 @@ def pivot_projection(projections, months):
     pivot = pivot.merge(avg_difficulty, left_on="Assigned Page", right_on="Assigned Page")
     pivot = pivot.merge(avg_intent_score.rename("Avg Intent Score"), left_on="Assigned Page", right_on="Assigned Page")
 
+    # Traffic Score
     pivot["Traffic Score"] = (pivot["Cumulative Total"] / pivot["Cumulative Total"].max()) * 100
     pivot["Ease Score"] = (100 - pivot["Difficulty"])
     pivot["Intent Score"] = pivot["Avg Intent Score"]
 
+    # Traffic Weight: penalize if very low traffic
+    pivot["Traffic Weight"] = pivot["Cumulative Total"].apply(lambda x: 1.0 if x >= 100 else 0.5)
+
+    # Final Page Score
     pivot["Final Page Score"] = (
-        (pivot["Traffic Score"] * 0.5) +
+        (pivot["Traffic Score"] * pivot["Traffic Weight"] * 0.5) +
         (pivot["Ease Score"] * 0.25) +
         (pivot["Intent Score"] * 0.25)
     )
@@ -214,7 +219,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (Clustered by Bracket Name)")
+st.title("📈 Keyword Traffic Projection App (with Traffic Weighting and Clusters)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -275,20 +280,7 @@ if uploaded_file:
         mime="text/csv"
     )
 
-    st.subheader("📈 Traffic Growth Over Time")
-    fig, ax = plt.subplots(figsize=(10, 6))
-    month_cols = [col for col in pivoted.columns if col.startswith("Month")]
-
-    for idx, row in pivoted.iterrows():
-        ax.plot(month_cols, row[month_cols], label=row['Assigned Page'])
-
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Estimated Traffic")
-    ax.set_title("Traffic Growth by Page")
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize="small")
-    st.pyplot(fig)
-
-    # --- Top Pages Opportunity ---
+    st.subheader("🏈 Top Opportunity Pages")
     def label_opportunity(row):
         if row['Final Page Score'] >= 80:
             return "Easy Win"
@@ -300,10 +292,8 @@ if uploaded_file:
     top_pages = pivoted.head(10).copy()
     top_pages["Opportunity Label"] = top_pages.apply(label_opportunity, axis=1)
 
-    st.subheader("🏆 Top Opportunity Pages")
     st.dataframe(top_pages[["Assigned Page", "Opportunity Label"]], use_container_width=True, hide_index=True)
 
-    # --- Cluster Opportunity Rankings ---
     st.subheader("🏢 Cluster Opportunity Rankings")
     cluster_summary = projections.groupby("Cluster Group").agg(
         Avg_Final_Page_Score=("Estimated Traffic", "mean"),
