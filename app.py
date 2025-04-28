@@ -80,7 +80,7 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
     elif difficulty < 40:
         current_rank = 40
     elif difficulty < 60:
-        current_rank = 60
+        return 60
     else:
         current_rank = 80
 
@@ -130,7 +130,6 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
 def project_traffic(df, months=6, mode="Average"):
     projections = []
 
-    # Extract Cluster Group
     df['Cluster Group'] = df['Assigned Page'].apply(extract_cluster)
     cluster_page_counts = df.groupby('Cluster Group')['Assigned Page'].nunique().to_dict()
 
@@ -141,7 +140,6 @@ def project_traffic(df, months=6, mode="Average"):
         intent = row['Intent']
         cluster = row['Cluster Group']
 
-        # Pages with ≥ 3 in same cluster are treated as stronger
         is_cluster = cluster_page_counts.get(cluster, 0) >= 3 and cluster != "No Cluster"
 
         ranks = estimate_rank_with_cluster(difficulty, months, mode=mode, is_cluster=is_cluster)
@@ -173,7 +171,7 @@ def project_traffic(df, months=6, mode="Average"):
 
     return pd.DataFrame(projections)
 
-# --- Pivot Output + Scoring (Option B with Traffic Weighting) ---
+# --- Pivot Output + Scoring (Polished Relative + Traffic Penalty) ---
 def pivot_projection(projections, months):
     pivot = projections.pivot_table(
         index="Assigned Page",
@@ -194,20 +192,22 @@ def pivot_projection(projections, months):
     pivot = pivot.merge(avg_difficulty, left_on="Assigned Page", right_on="Assigned Page")
     pivot = pivot.merge(avg_intent_score.rename("Avg Intent Score"), left_on="Assigned Page", right_on="Assigned Page")
 
-    # Traffic Score
+    # Scoring
     pivot["Traffic Score"] = (pivot["Cumulative Total"] / pivot["Cumulative Total"].max()) * 100
     pivot["Ease Score"] = (100 - pivot["Difficulty"])
     pivot["Intent Score"] = pivot["Avg Intent Score"]
 
-    # Traffic Weight: penalize if very low traffic
-    pivot["Traffic Weight"] = pivot["Cumulative Total"].apply(lambda x: 1.0 if x >= 100 else 0.5)
+    # Traffic Weight
+    pivot["Traffic Weight"] = pivot["Cumulative Total"].apply(lambda x: 1.0 if x >= 100 else 0.3)
 
-    # Final Page Score
     pivot["Final Page Score"] = (
         (pivot["Traffic Score"] * pivot["Traffic Weight"] * 0.5) +
         (pivot["Ease Score"] * 0.25) +
         (pivot["Intent Score"] * 0.25)
     )
+
+    # Hard cap if cumulative visitors very low
+    pivot.loc[pivot["Cumulative Total"] < 10, "Final Page Score"] = pivot["Final Page Score"] * 0.5
 
     pivot = pivot.round(1)
 
@@ -219,7 +219,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Keyword Traffic Projection App (with Traffic Weighting and Clusters)")
+st.title("📈 Keyword Traffic Projection App (Polished Relative Model)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -280,23 +280,17 @@ if uploaded_file:
         mime="text/csv"
     )
 
-    st.subheader("🏈 Top Opportunity Pages")
-    def label_opportunity(row):
-        if row['Final Page Score'] >= 80:
-            return "Easy Win"
-        elif row['Final Page Score'] >= 70:
-            return "Moderate Win"
-        else:
-            return "Harder Bet"
-
-    top_pages = pivoted.head(10).copy()
-    top_pages["Opportunity Label"] = top_pages.apply(label_opportunity, axis=1)
-
-    st.dataframe(top_pages[["Assigned Page", "Opportunity Label"]], use_container_width=True, hide_index=True)
+    st.subheader("🏆 Top Opportunity Pages")
+    top_pages = pivoted.sort_values("Final Page Score", ascending=False).head(10)
+    st.dataframe(top_pages[["Assigned Page", "Cumulative Total", "Final Page Score"]], use_container_width=True, hide_index=True)
 
     st.subheader("🏢 Cluster Opportunity Rankings")
-    cluster_summary = projections.groupby("Cluster Group").agg(
-        Avg_Final_Page_Score=("Estimated Traffic", "mean"),
+    cluster_summary = projections.merge(
+        pivoted[["Assigned Page", "Final Page Score"]],
+        on="Assigned Page",
+        how="left"
+    ).groupby("Cluster Group").agg(
+        Avg_Final_Page_Score=("Final Page Score", "mean"),
         Page_Count=("Assigned Page", "nunique")
     ).reset_index()
 
