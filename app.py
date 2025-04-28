@@ -120,15 +120,18 @@ def estimate_rank_with_cluster(difficulty, months=6, mode="Average", is_cluster=
 # --- Project Traffic ---
 def project_traffic(df, months=6, mode="Average"):
     projections = []
-    cluster_page_counts = df.groupby('Cluster Group')['Assigned Page'].nunique().to_dict()
+
+    # Using Assigned Page for clustering
+    page_keyword_counts = df.groupby('Assigned Page').size().to_dict()
 
     for idx, row in df.iterrows():
         page = row['Assigned Page']
         volume = row['Monthly Search Volume']
         difficulty = row['Difficulty']
         intent = row['Intent']
-        cluster = row['Cluster Group']
-        is_cluster = cluster and cluster_page_counts.get(cluster, 0) >= 3
+
+        # Pages with >= 3 keywords are treated as stronger
+        is_cluster = page_keyword_counts.get(page, 0) >= 3
 
         ranks = estimate_rank_with_cluster(difficulty, months, mode=mode, is_cluster=is_cluster)
 
@@ -153,8 +156,7 @@ def project_traffic(df, months=6, mode="Average"):
                 "Month": month_idx,
                 "Estimated Traffic": est_traffic,
                 "Difficulty": difficulty,
-                "Intent": intent,
-                "Cluster Group": cluster
+                "Intent": intent
             })
 
     return pd.DataFrame(projections)
@@ -200,7 +202,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Organic Traffic Projection")
+st.title("📈 Keyword Traffic Projection App (Assigned Page Clustering)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -291,13 +293,13 @@ if uploaded_file:
 
     # --- Cluster Opportunity Rankings ---
     st.subheader("🏢 Cluster Opportunity Rankings")
+    cluster_summary = pivoted.copy()
 
-    cluster_summary = projections.groupby("Cluster Group").agg(
-        Avg_Final_Page_Score=("Assigned Page", lambda x: pivoted[pivoted["Assigned Page"].isin(x)].mean()["Final Page Score"]),
-        Page_Count=("Assigned Page", lambda x: x.nunique())
+    cluster_summary["Page Count"] = 1  # since Assigned Page is the grouping itself
+    cluster_summary = cluster_summary.groupby("Assigned Page").agg(
+        Avg_Final_Page_Score=("Final Page Score", "mean"),
+        Page_Count=("Page Count", "sum")
     ).reset_index()
-
-    cluster_summary = cluster_summary.dropna(subset=["Cluster Group"])
 
     def cluster_label(row):
         if row['Avg_Final_Page_Score'] >= 80:
@@ -312,7 +314,7 @@ if uploaded_file:
     cluster_summary["Opportunity Label"] = cluster_summary.apply(cluster_label, axis=1)
 
     st.dataframe(
-        cluster_summary[["Cluster Group", "Page_Count", "Avg_Final_Page_Score", "Opportunity Label"]],
+        cluster_summary[["Assigned Page", "Page_Count", "Avg_Final_Page_Score", "Opportunity Label"]],
         use_container_width=True,
         hide_index=True
     )
