@@ -115,6 +115,14 @@ def estimate_rank(difficulty, months=6, mode="Average"):
 def project_traffic(df, months=6, mode="Average"):
     projections = []
 
+    # Handle missing difficulty
+    df['Difficulty'] = pd.to_numeric(df['Difficulty'], errors='coerce')
+    missing_difficulty = df['Difficulty'].isna().sum()
+    df['Difficulty'] = df['Difficulty'].fillna(50)
+
+    # Count missing intent
+    missing_intent = df['Intent'].isna().sum()
+
     for idx, row in df.iterrows():
         page = row['Assigned Page']
         volume = row['Monthly Search Volume']
@@ -147,11 +155,11 @@ def project_traffic(df, months=6, mode="Average"):
                 "Intent": intent
             })
 
-    return pd.DataFrame(projections)
+    return projections, missing_difficulty, missing_intent
 
 # --- Pivot Output + Scoring (Polished Relative + Traffic Penalty) ---
-def pivot_projection(projections, months):
-    pivot = projections.pivot_table(
+def pivot_projection(projections_df, months):
+    pivot = projections_df.pivot_table(
         index="Assigned Page",
         columns="Month",
         values="Estimated Traffic",
@@ -162,8 +170,8 @@ def pivot_projection(projections, months):
     pivot.columns = [f"Month {col}" for col in pivot.columns]
     pivot["Cumulative Total"] = pivot.sum(axis=1)
 
-    avg_difficulty = projections.groupby("Assigned Page")["Difficulty"].mean()
-    avg_intent_score = projections.groupby("Assigned Page")["Intent"].apply(
+    avg_difficulty = projections_df.groupby("Assigned Page")["Difficulty"].mean()
+    avg_intent_score = projections_df.groupby("Assigned Page")["Intent"].apply(
         lambda intents: sum([x for x in map(map_intent_score, intents) if x is not None]) / max(len([x for x in map(map_intent_score, intents) if x is not None]), 1)
     )
 
@@ -196,7 +204,7 @@ def pivot_projection(projections, months):
     return pivot
 
 # --- Streamlit App ---
-st.title("📈 Organic Traffic Projection")
+st.title("📈 Keyword Traffic Projection App (Final Polished Version)")
 
 uploaded_file = st.file_uploader("Upload your keyword CSV", type=["csv"])
 
@@ -207,9 +215,6 @@ if uploaded_file:
     st.success("✅ File uploaded successfully — now select mode and months below.")
     st.subheader("Your Uploaded Data")
     st.dataframe(df)
-
-    if df['Intent'].isna().sum() > 0 or (df['Intent'].str.strip() == "").sum() > 0:
-        st.warning("⚠️ Some keywords have missing Intent. These will not receive an Intent Score boost.")
 
     mode = st.selectbox(
         "Select Improvement Mode:",
@@ -223,8 +228,14 @@ if uploaded_file:
         index=1
     )
 
-    projections = project_traffic(df, months, mode=mode)
-    pivoted = pivot_projection(projections, months)
+    projections, missing_difficulty, missing_intent = project_traffic(df, months, mode=mode)
+    projections_df = pd.DataFrame(projections)
+    pivoted = pivot_projection(projections_df, months)
+
+    if missing_difficulty > 0:
+        st.warning(f"⚠️ {missing_difficulty} keywords had missing difficulty. Assumed Difficulty = 50.")
+    if missing_intent > 0:
+        st.warning(f"⚠️ {missing_intent} keywords had missing Intent. These received no Intent Score.")
 
     filter_option = st.radio(
         "Filter Pages By:",
@@ -234,7 +245,7 @@ if uploaded_file:
     if filter_option == "Show Pages with Final Page Score >40":
         pivoted = pivoted[pivoted["Final Page Score"] > 40]
     elif filter_option == "Show Top 10 Pages":
-        pivoted = pivoted.head(10)
+        pivoted = pivoted.sort_values("Final Page Score", ascending=False).head(10)
 
     st.subheader("📋 Executive Summary")
     avg_score = pivoted["Final Page Score"].mean().round(1) if not pivoted.empty else 0
